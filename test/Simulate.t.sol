@@ -24,6 +24,7 @@ import {DeployPermit2} from "../test/utils/forks/DeployPermit2.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {IPositionDescriptor} from "v4-periphery/src/interfaces/IPositionDescriptor.sol";
 import {IWETH9} from "v4-periphery/src/interfaces/external/IWETH9.sol";
+import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 
 contract SimulateTest is Test, DeployPermit2 {
     using EasyPosm for IPositionManager;
@@ -345,7 +346,14 @@ contract SimulateTest is Test, DeployPermit2 {
     function getCurrentSqrtPrice(
         PoolKey memory _poolkey
     ) internal view returns (uint160) {
-        return PoolManager(address(manager)).getSqrtPriceX96(_poolkey.toId());
+        // return PoolManager(address(manager)).getSqrtPriceX96(_poolkey.toId());
+        (
+            uint160 sqrtPriceX96,
+            int24 tick,
+            uint24 protocolFee,
+            uint24 lpFee
+        ) = StateLibrary.getSlot0(manager, _poolkey.toId());
+        return sqrtPriceX96;
     }
 
     // 固定小数点で読みやすい文字列を生成（小数部6桁表示）
