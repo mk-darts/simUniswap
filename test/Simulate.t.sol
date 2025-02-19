@@ -194,11 +194,9 @@ contract SimulateTest is Test, DeployPermit2 {
             uint256 priceAfter = ((uint256(sqrtPriceAfter) *
                 uint256(sqrtPriceAfter)) * 1e18) >> 192;
             if (sqrtPriceAfter >= sqrtPriceBefore) {
-                // 価格上昇：増加分 = priceAfter - priceBefore
-                console.log(unicode"で価格上昇：", priceAfter - priceBefore);
+                console.log(unicode"で価格上昇：", formatPriceDiff(priceAfter - priceBefore), "USDT");
             } else {
-                // 価格下降：減少分 = priceBefore - priceAfter
-                console.log(unicode"で価格下降：", priceBefore - priceAfter);
+                console.log(unicode"で価格下降：", formatPriceDiff(priceBefore - priceAfter), "USDT");
             }
 
             console.log(unicode"取引量:", amountSpecified / 1 ether);
@@ -206,8 +204,8 @@ contract SimulateTest is Test, DeployPermit2 {
             // swap後のtokenDAR, tokenUSDTのバランスをログ出力
             uint256 balance0 = tokenDAR.balanceOf(investor1);
             uint256 balance1 = tokenUSDT.balanceOf(investor1);
-            console.log("DAR balance:", balance0);
-            console.log("USDT balance:", balance1);
+            console.log("DAR balance: ", formatBalance(balance0, 18), "DAR");
+            console.log("USDT balance: ", formatBalance(balance1, 18), "USDT");
         }
         vm.stopPrank();
         uint256 combalance0 = 100_000_000 ether - tokenDAR.balanceOf(company);
@@ -298,20 +296,62 @@ contract SimulateTest is Test, DeployPermit2 {
         return sqrtPriceX96;
     }
 
-    // 固定小数点で読みやすい文字列を生成（小数部6桁表示）
-    // Q64.96 表現の sqrtPriceX96 を通常の価格に変換し、1:1 の場合は 1e18 となるよう補正します。
-    function toReadablePriceFixed(
-        uint160 sqrtPriceX96
-    ) internal pure returns (string memory) {
-        // 通常の価格: price = (sqrtPriceX96^2) >> 192
-        // ここで 1e18 倍して、1:1 の場合 price == 1e18 となるようにする
-        uint256 price = ((uint256(sqrtPriceX96) * uint256(sqrtPriceX96)) *
-            1e18) >> 192;
-        // uint256 whole = price / 1e18;
-        // uint256 fraction = (price % 1e18) / 1e12; // 小数部6桁（1e18 ÷ 1e12 = 1e6 桁）
-        return
-            // string(abi.encodePacked(uint2str(whole), ".", uint2str(fraction)));
-            uint2str(price);
+    function toReadablePriceFixed(uint160 sqrtPriceX96) internal pure returns (string memory) {
+        uint256 price = ((uint256(sqrtPriceX96) * uint256(sqrtPriceX96)) * 1e18) >> 192;
+
+        string memory priceStr = uint2str(price);
+        bytes memory priceBytes = bytes(priceStr);
+
+        if (priceBytes.length <= 5) {
+            // 5桁以下なら "0.00XXX" 形式
+            string memory padded = priceStr;
+            for (uint i = 0; i < 5 - priceBytes.length; i++) {
+                padded = string(abi.encodePacked("0", padded));
+            }
+            return string(abi.encodePacked("0.000", padded));
+        } else {
+            return string(abi.encodePacked(
+                "0.000",
+                substring(priceStr, 0, 3),
+                "...",
+                substring(priceStr, priceBytes.length - 2, 2)
+            ));
+        }
+    }
+
+    function substring(string memory str, uint startIndex, uint length) internal pure returns (string memory) {
+        bytes memory strBytes = bytes(str);
+        bytes memory result = new bytes(length);
+        for (uint i = 0; i < length; i++) {
+            if (startIndex + i < strBytes.length) {
+                result[i] = strBytes[startIndex + i];
+            }
+        }
+        return string(result);
+    }
+
+    function formatBalance(uint256 balance, uint8 decimals) internal pure returns (string memory) {
+        uint256 whole = balance / (10**decimals);
+        uint256 fraction = (balance % (10**decimals)) / (10**(decimals-6)); // 小数点以下6桁まで表示
+
+        // 小数部を6桁にゼロ埋め
+        string memory fractionStr = uint2str(fraction);
+        uint256 fractionLen = bytes(fractionStr).length;
+        for (uint i = 0; i < 6 - fractionLen; i++) {
+            fractionStr = string(abi.encodePacked("0", fractionStr));
+        }
+
+        return string(abi.encodePacked(uint2str(whole), ".", fractionStr));
+    }
+
+    function formatPriceDiff(uint256 diff) internal pure returns (string memory) {
+        if (diff < 1e12) {
+            return string(abi.encodePacked("0.0000000", uint2str(diff / 1e5)));
+        } else if (diff < 1e13) {
+            return string(abi.encodePacked("0.000000", uint2str(diff / 1e5)));
+        } else {
+            return string(abi.encodePacked("0.00000", uint2str(diff / 1e7)));
+        }
     }
 
     function uint2str(uint256 _i) internal pure returns (string memory) {
