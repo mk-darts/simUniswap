@@ -80,17 +80,7 @@ contract SimulateTest is Test, DeployPermit2 {
         tokenDAR.mint(investor1, 100_000_000 ether);
         vm.stopPrank();
 
-        // // initialize the pool
-        // tickSpacing = 60;
-        // poolKey = PoolKey(
-        //     Currency.wrap(address(tokenDAR)),
-        //     Currency.wrap(address(tokenUSDT)),
-        //     3000,
-        //     tickSpacing,
-        //     IHooks(hook)
-        // );
-        // manager.initialize(poolKey, Constants.SQRT_PRICE_1_1);
-
+        tickSpacing = 60;
         // approve the tokens to the routers
         vm.startPrank(company);
         tokenDAR.approve(address(lpRouter), type(uint256).max);
@@ -116,7 +106,7 @@ contract SimulateTest is Test, DeployPermit2 {
             currency1: Currency.wrap(address(tokenUSDT)),
             fee: 3000, // 0.3%
             // fee: 100000, // 10%
-            tickSpacing: 60,
+            tickSpacing: tickSpacing,
             hooks: IHooks(address(0))
         });
 
@@ -131,22 +121,21 @@ contract SimulateTest is Test, DeployPermit2 {
         manager.initialize(customPool, sqrtPriceX96);
 
         // 価格レンジ下限 (約0.05) と 価格上限 (1)
-        // uint160 sqrtPriceLower = 17700000000000000000000000000;
-        // uint160 sqrtPriceUpper = 79228162514264337593543950336;
-        // uint160 sqrtPriceLower = encodePriceSqrt(5, 1e7);
-        // uint160 sqrtPriceUpper = encodePriceSqrt(2, 100);
-
         // １
         int24 rawTickLower = TickMath.minUsableTick(tickSpacing);
         uint160 sqrtPriceUpper = encodePriceSqrt(2, 100);
         int24 rawTickUpper = TickMath.getTickAtSqrtPrice(sqrtPriceUpper);
+        uint256 darAmount = type(uint128).max;
         uint256 usdtAmount = 70000e18;
-
-        // int24 rawTickLower = TickMath.getTickAtSqrtPrice(sqrtPriceLower);
-        // int24 rawTickUpper = TickMath.getTickAtSqrtPrice(sqrtPriceUpper);
 
         int24 tickLower = (rawTickLower / 60) * 60;
         int24 tickUpper = (rawTickUpper / 60) * 60;
+
+        uint128 liquidity = LiquidityAmounts.getLiquidityForAmount1(
+            TickMath.getSqrtPriceAtTick(tickLower),
+            TickMath.getSqrtPriceAtTick(tickUpper),
+            usdtAmount
+        );
 
         // 1000tokenDARぶんを入金 (tokenUSDTは自動計算される想定)
         // 設定deposit
@@ -154,7 +143,7 @@ contract SimulateTest is Test, DeployPermit2 {
             customPool,
             tickLower,
             tickUpper,
-            type(uint256).max, // amount0
+            liquidity, // amount0
             type(uint256).max, // amount0Max
             usdtAmount, // amount1Max
             company,
@@ -181,9 +170,6 @@ contract SimulateTest is Test, DeployPermit2 {
             IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
                 zeroForOne: zeroForOne,
                 amountSpecified: amountSpecified,
-                // sqrtPriceLimitX96: zeroForOne
-                //     ? TickMath.MIN_SQRT_PRICE + 1
-                //     : TickMath.MAX_SQRT_PRICE - 1
                 sqrtPriceLimitX96: zeroForOne
                     ? (sqrtPriceBefore * 90) / 100
                     : (sqrtPriceBefore * 110) / 100
@@ -196,11 +182,6 @@ contract SimulateTest is Test, DeployPermit2 {
 
             // swap後の価格取得
             uint160 sqrtPriceAfter = getCurrentSqrtPrice(customPool);
-            // console.log(
-            //     unicode"後 1DAR =",
-            //     toReadablePriceFixed(sqrtPriceAfter),
-            //     "USDT"
-            // );
             console.log(
                 unicode"後 1DAR =",
                 toReadablePriceFixed(sqrtPriceAfter),
@@ -220,72 +201,20 @@ contract SimulateTest is Test, DeployPermit2 {
                 console.log(unicode"で価格下降：", priceBefore - priceAfter);
             }
 
-            // if (sqrtPriceAfter >= sqrtPriceBefore) {
-            //     console.log(
-            //         "Swap",
-            //         i + 1,
-            //         unicode"で価格上昇：",
-            //         toReadablePriceFixed(sqrtPriceAfter - sqrtPriceBefore)
-            //     );
-            // } else {
-            //     console.log(
-            //         "Swap",
-            //         i + 1,
-            //         unicode"で価格下降：",
-            //         toReadablePriceFixed(sqrtPriceBefore - sqrtPriceAfter)
-            //     );
-            // }
-
             console.log(unicode"取引量:", amountSpecified / 1 ether);
 
             // swap後のtokenDAR, tokenUSDTのバランスをログ出力
-            uint256 balance0 = tokenDAR.balanceOf(investor1) / 1e10;
-            uint256 balance1 = tokenUSDT.balanceOf(investor1) / 1e10;
+            uint256 balance0 = tokenDAR.balanceOf(investor1);
+            uint256 balance1 = tokenUSDT.balanceOf(investor1);
             console.log("DAR balance:", balance0);
             console.log("USDT balance:", balance1);
         }
         vm.stopPrank();
+        uint256 combalance0 = 100_000_000 ether - tokenDAR.balanceOf(company);
+        uint256 combalance1 = 100_000_000 ether - tokenUSDT.balanceOf(company);
+        console.log("companyDAR balance:", combalance0 / 1e18);
+        console.log("companyUSDT balance:", combalance1 / 1e18);
     }
-
-    // function testLifecycle() public {
-    //     // add full range liquidity to the pool
-    //     lpRouter.modifyLiquidity(
-    //         poolKey,
-    //         IPoolManager.ModifyLiquidityParams(
-    //             TickMath.minUsableTick(tickSpacing),
-    //             TickMath.maxUsableTick(tickSpacing),
-    //             100 ether,
-    //             0
-    //         ),
-    //         ZERO_BYTES
-    //     );
-
-    //     posm.mint(
-    //         poolKey,
-    //         TickMath.minUsableTick(tickSpacing),
-    //         TickMath.maxUsableTick(tickSpacing),
-    //         100e18,
-    //         10_000e18,
-    //         10_000e18,
-    //         msg.sender,
-    //         block.timestamp + 300,
-    //         ZERO_BYTES
-    //     );
-
-    //     // swap some tokens
-    //     bool zeroForOne = true;
-    //     int256 amountSpecified = 1 ether;
-    //     IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
-    //         zeroForOne: zeroForOne,
-    //         amountSpecified: amountSpecified,
-    //         sqrtPriceLimitX96: zeroForOne
-    //             ? TickMath.MIN_SQRT_PRICE + 1
-    //             : TickMath.MAX_SQRT_PRICE - 1 // unlimited impact
-    //     });
-    //     PoolSwapTest.TestSettings memory testSettings = PoolSwapTest
-    //         .TestSettings({takeClaims: false, settleUsingBurn: false});
-    //     swapRouter.swap(poolKey, params, testSettings, ZERO_BYTES);
-    // }
 
     function deployPoolManager() internal returns (IPoolManager) {
         return IPoolManager(address(new PoolManager(address(0))));
