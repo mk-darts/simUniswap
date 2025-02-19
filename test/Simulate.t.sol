@@ -25,6 +25,7 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {IPositionDescriptor} from "v4-periphery/src/interfaces/IPositionDescriptor.sol";
 import {IWETH9} from "v4-periphery/src/interfaces/external/IWETH9.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
+import {LiquidityAmounts} from "v4-core/test/utils/LiquidityAmounts.sol";
 
 contract SimulateTest is Test, DeployPermit2 {
     using EasyPosm for IPositionManager;
@@ -48,8 +49,8 @@ contract SimulateTest is Test, DeployPermit2 {
 
     function setUp() public {
         // foundry.toml で指定した eth_rpc_url を使ってフォークを作成
-        string memory rpcUrl = vm.rpcUrl("anvil");
-        vm.createSelectFork(rpcUrl);
+        // string memory rpcUrl = vm.rpcUrl("anvil");
+        // vm.createSelectFork(rpcUrl);
 
         manager = deployPoolManager();
         ZERO_BYTES = new bytes(0);
@@ -113,8 +114,8 @@ contract SimulateTest is Test, DeployPermit2 {
         PoolKey memory customPool = PoolKey({
             currency0: Currency.wrap(address(tokenDAR)),
             currency1: Currency.wrap(address(tokenUSDT)),
-            //fee: 3000, // 0.3%
-            fee: 100000, // 10%
+            fee: 3000, // 0.3%
+            // fee: 100000, // 10%
             tickSpacing: 60,
             hooks: IHooks(address(0))
         });
@@ -132,11 +133,18 @@ contract SimulateTest is Test, DeployPermit2 {
         // 価格レンジ下限 (約0.05) と 価格上限 (1)
         // uint160 sqrtPriceLower = 17700000000000000000000000000;
         // uint160 sqrtPriceUpper = 79228162514264337593543950336;
-        uint160 sqrtPriceLower = encodePriceSqrt(5, 1e7);
-        uint160 sqrtPriceUpper = encodePriceSqrt(1, 1);
+        // uint160 sqrtPriceLower = encodePriceSqrt(5, 1e7);
+        // uint160 sqrtPriceUpper = encodePriceSqrt(2, 100);
 
-        int24 rawTickLower = TickMath.getTickAtSqrtPrice(sqrtPriceLower);
+        // １
+        int24 rawTickLower = TickMath.minUsableTick(tickSpacing);
+        uint160 sqrtPriceUpper = encodePriceSqrt(2, 100);
         int24 rawTickUpper = TickMath.getTickAtSqrtPrice(sqrtPriceUpper);
+        uint256 usdtAmount = 70000e18;
+
+        // int24 rawTickLower = TickMath.getTickAtSqrtPrice(sqrtPriceLower);
+        // int24 rawTickUpper = TickMath.getTickAtSqrtPrice(sqrtPriceUpper);
+
         int24 tickLower = (rawTickLower / 60) * 60;
         int24 tickUpper = (rawTickUpper / 60) * 60;
 
@@ -146,9 +154,9 @@ contract SimulateTest is Test, DeployPermit2 {
             customPool,
             tickLower,
             tickUpper,
-            1_0000e18,
+            type(uint256).max, // amount0
             type(uint256).max, // amount0Max
-            10_000e18, // amount1Max
+            usdtAmount, // amount1Max
             company,
             block.timestamp + 300,
             ""
@@ -188,6 +196,11 @@ contract SimulateTest is Test, DeployPermit2 {
 
             // swap後の価格取得
             uint160 sqrtPriceAfter = getCurrentSqrtPrice(customPool);
+            // console.log(
+            //     unicode"後 1DAR =",
+            //     toReadablePriceFixed(sqrtPriceAfter),
+            //     "USDT"
+            // );
             console.log(
                 unicode"後 1DAR =",
                 toReadablePriceFixed(sqrtPriceAfter),
@@ -234,45 +247,45 @@ contract SimulateTest is Test, DeployPermit2 {
         vm.stopPrank();
     }
 
-    function testLifecycle() public {
-        // add full range liquidity to the pool
-        lpRouter.modifyLiquidity(
-            poolKey,
-            IPoolManager.ModifyLiquidityParams(
-                TickMath.minUsableTick(tickSpacing),
-                TickMath.maxUsableTick(tickSpacing),
-                100 ether,
-                0
-            ),
-            ZERO_BYTES
-        );
+    // function testLifecycle() public {
+    //     // add full range liquidity to the pool
+    //     lpRouter.modifyLiquidity(
+    //         poolKey,
+    //         IPoolManager.ModifyLiquidityParams(
+    //             TickMath.minUsableTick(tickSpacing),
+    //             TickMath.maxUsableTick(tickSpacing),
+    //             100 ether,
+    //             0
+    //         ),
+    //         ZERO_BYTES
+    //     );
 
-        posm.mint(
-            poolKey,
-            TickMath.minUsableTick(tickSpacing),
-            TickMath.maxUsableTick(tickSpacing),
-            100e18,
-            10_000e18,
-            10_000e18,
-            msg.sender,
-            block.timestamp + 300,
-            ZERO_BYTES
-        );
+    //     posm.mint(
+    //         poolKey,
+    //         TickMath.minUsableTick(tickSpacing),
+    //         TickMath.maxUsableTick(tickSpacing),
+    //         100e18,
+    //         10_000e18,
+    //         10_000e18,
+    //         msg.sender,
+    //         block.timestamp + 300,
+    //         ZERO_BYTES
+    //     );
 
-        // swap some tokens
-        bool zeroForOne = true;
-        int256 amountSpecified = 1 ether;
-        IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
-            zeroForOne: zeroForOne,
-            amountSpecified: amountSpecified,
-            sqrtPriceLimitX96: zeroForOne
-                ? TickMath.MIN_SQRT_PRICE + 1
-                : TickMath.MAX_SQRT_PRICE - 1 // unlimited impact
-        });
-        PoolSwapTest.TestSettings memory testSettings = PoolSwapTest
-            .TestSettings({takeClaims: false, settleUsingBurn: false});
-        swapRouter.swap(poolKey, params, testSettings, ZERO_BYTES);
-    }
+    //     // swap some tokens
+    //     bool zeroForOne = true;
+    //     int256 amountSpecified = 1 ether;
+    //     IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
+    //         zeroForOne: zeroForOne,
+    //         amountSpecified: amountSpecified,
+    //         sqrtPriceLimitX96: zeroForOne
+    //             ? TickMath.MIN_SQRT_PRICE + 1
+    //             : TickMath.MAX_SQRT_PRICE - 1 // unlimited impact
+    //     });
+    //     PoolSwapTest.TestSettings memory testSettings = PoolSwapTest
+    //         .TestSettings({takeClaims: false, settleUsingBurn: false});
+    //     swapRouter.swap(poolKey, params, testSettings, ZERO_BYTES);
+    // }
 
     function deployPoolManager() internal returns (IPoolManager) {
         return IPoolManager(address(new PoolManager(address(0))));
@@ -365,10 +378,11 @@ contract SimulateTest is Test, DeployPermit2 {
         // ここで 1e18 倍して、1:1 の場合 price == 1e18 となるようにする
         uint256 price = ((uint256(sqrtPriceX96) * uint256(sqrtPriceX96)) *
             1e18) >> 192;
-        uint256 whole = price / 1e18;
-        uint256 fraction = (price % 1e18) / 1e12; // 小数部6桁（1e18 ÷ 1e12 = 1e6 桁）
+        // uint256 whole = price / 1e18;
+        // uint256 fraction = (price % 1e18) / 1e12; // 小数部6桁（1e18 ÷ 1e12 = 1e6 桁）
         return
-            string(abi.encodePacked(uint2str(whole), ".", uint2str(fraction)));
+            // string(abi.encodePacked(uint2str(whole), ".", uint2str(fraction)));
+            uint2str(price);
     }
 
     function uint2str(uint256 _i) internal pure returns (string memory) {
